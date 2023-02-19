@@ -1,5 +1,10 @@
 import { ChatGPTAPI } from 'chatgpt'
 import { Configuration, OpenAIApi } from "openai";
+// Environment variables
+import dotenv from 'dotenv';
+
+// Load environment variables
+dotenv.config();
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 
