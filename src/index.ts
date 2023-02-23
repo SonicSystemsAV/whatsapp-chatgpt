@@ -1,55 +1,46 @@
 import qrcode from "qrcode-terminal";
-import { Client, Message, Events } from "whatsapp-web.js";
-import { startsWithIgnoreCase } from "./utils"
+import { Client, Message, Events, LocalAuth } from "whatsapp-web.js";
+import { startsWithIgnoreCase } from "./utils";
 
-// Environment variables
-import dotenv from "dotenv";
-dotenv.config();
+// Config & Constants
+import config from "./config";
+import constants from "./constants";
 
 // ChatGPT & DALLE
-import { handleMessageGPT } from "./gpt";
-import { handleMessageDALLE } from "./dalle";
+import { handleMessageGPT } from "./handlers/gpt";
+import { handleMessageDALLE } from "./handlers/dalle";
+import { handleMessageAIConfig } from "./handlers/ai-config";
 
-import * as cli from '../cli/ui'
-
-// Whatsapp status (status@broadcast)
-const statusBroadcast = "status@broadcast";
-
-// Prefixes
-const prefixEnabled = process.env.PREFIX_ENABLED == "true";
-const gptPrefix = "!gpt";
-const dallePrefix = "!dalle";
-
-// Whatsapp Client
-const client = new Client({
-	puppeteer: {
-		args: ["--no-sandbox"]
-	}
-});
+import * as cli from "./cli/ui";
 
 // Handles message
-async function sendMessage(message: Message) {
+async function handleIncomingMessage(message: Message) {
 	const messageString = message.body;
 
-	if (messageString.length == 0) return;
-
-	if (!prefixEnabled) {
+	if (!config.prefixEnabled) {
 		// GPT (only <prompt>)
 		await handleMessageGPT(message, messageString);
 		return;
 	}
 
 	// GPT (!gpt <prompt>)
-	if (startsWithIgnoreCase(messageString, gptPrefix)) {
-		const prompt = messageString.substring(gptPrefix.length + 1);
+	if (startsWithIgnoreCase(messageString, config.gptPrefix)) {
+		const prompt = messageString.substring(config.gptPrefix.length + 1);
 		await handleMessageGPT(message, prompt);
 		return;
 	}
 
 	// DALLE (!dalle <prompt>)
-	if (startsWithIgnoreCase(messageString, dallePrefix)) {
-		const prompt = messageString.substring(dallePrefix.length + 1);
+	if (startsWithIgnoreCase(messageString, config.dallePrefix)) {
+		const prompt = messageString.substring(config.dallePrefix.length + 1);
 		await handleMessageDALLE(message, prompt);
+		return;
+	}
+
+	// AiConfig (!config <args>)
+	if (startsWithIgnoreCase(messageString, config.aiConfigPrefix)) {
+		const prompt = messageString.substring(config.aiConfigPrefix.length + 1);
+		await handleMessageAIConfig(message, prompt);
 		return;
 	}
 }
@@ -58,29 +49,48 @@ async function sendMessage(message: Message) {
 const start = async () => {
 	cli.printIntro();
 
-	// Whatsapp auth
+	// WhatsApp Client
+	const client = new Client({
+		puppeteer: {
+			args: ["--no-sandbox"]
+		},
+		authStrategy: new LocalAuth({
+			clientId: undefined,
+			dataPath: constants.sessionPath
+		})
+	});
+
+	// WhatsApp auth
 	client.on(Events.QR_RECEIVED, (qr: string) => {
 		qrcode.generate(qr, { small: true }, (qrcode: string) => {
 			cli.printQRCode(qrcode);
 		});
 	});
 
-	// Whatsapp loading
+	// WhatsApp loading
 	client.on(Events.LOADING_SCREEN, (percent) => {
-		if (percent == '0') {
-			cli.printLoading()
+		if (percent == "0") {
+			cli.printLoading();
 		}
 	});
 
-	// Whatsapp ready
-	client.on(Events.READY, () => {
-		cli.printOutro()
+	client.on(Events.AUTHENTICATED, () => {
+		cli.printAuthenticated();
 	});
 
-	// Whatsapp message
+	client.on(Events.AUTHENTICATION_FAILURE, () => {
+		cli.printAuthenticationFailure();
+	});
+
+	// WhatsApp ready
+	client.on(Events.READY, () => {
+		cli.printOutro();
+	});
+
+	// WhatsApp message
 	client.on(Events.MESSAGE_RECEIVED, async (message: any) => {
 		// Ignore if message is from status broadcast
-		if (message.from == statusBroadcast) return;
+		if (message.from == constants.statusBroadcast) return;
 
 		// Ignore if message is empty or media
 		if (message.body.length == 0) return;
@@ -89,13 +99,13 @@ const start = async () => {
 		// Ignore if it's a quoted message, (e.g. GPT reply)
 		if (message.hasQuotedMsg) return;
 
-		await sendMessage(message);
+		await handleIncomingMessage(message);
 	});
 
 	// Reply to own message
 	client.on(Events.MESSAGE_CREATE, async (message: Message) => {
 		// Ignore if message is from status broadcast
-		if (message.from == statusBroadcast) return;
+		if (message.from == constants.statusBroadcast) return;
 
 		// Ignore if message is empty or media
 		if (message.body.length == 0) return;
@@ -107,10 +117,10 @@ const start = async () => {
 		// Ignore if it's not from me
 		if (!message.fromMe) return;
 
-		await sendMessage(message);
+		await handleIncomingMessage(message);
 	});
 
-	// Whatsapp initialization
+	// WhatsApp initialization
 	client.initialize();
 };
 
