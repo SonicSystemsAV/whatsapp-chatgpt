@@ -1,7 +1,7 @@
 import os from "os";
 import fs from "fs";
+import path from "path";
 import { randomUUID } from "crypto";
-import { ChatMessage } from "chatgpt";
 import { Message, MessageMedia } from "whatsapp-web.js";
 import { chatgpt } from "../providers/openai";
 import * as cli from "../cli/ui";
@@ -14,31 +14,41 @@ const conversations = {};
 const handleMessageGPT = async (message: Message, prompt: string) => {
 	try {
 		// Get last conversation
-		const lastConversation = conversations[message.from];
+		const lastConversationId = conversations[message.from];
 
 		cli.print(`[GPT] Received prompt from ${message.from}: ${prompt}`);
 
 		const start = Date.now();
 
 		// Check if we have a conversation with the user
-		let response: ChatMessage;
-		if (lastConversation) {
+		let response: string;
+		if (lastConversationId) {
 			// Handle message with previous conversation
-			response = await chatgpt.sendMessage(prompt, lastConversation);
+			response = await chatgpt.ask(prompt, lastConversationId);
 		} else {
+			// Create new conversation
+			const convId = randomUUID()
+			const conv = chatgpt.addConversation(convId)
+
+			// Set conversation
+			conversations[message.from] = conv.id
+
+			cli.print(`[GPT] New conversation for ${message.from} (ID: ${conv.id})`)
+
+			// Pre prompt
+			if (config.prePrompt != null) {
+				cli.print(`[GPT] Pre prompt: ${config.prePrompt}`);
+				const prePromptResponse = await chatgpt.ask(config.prePrompt, conv.id);
+				cli.print("[GPT] Pre prompt response: " + prePromptResponse);
+			}
+
 			// Handle message with new conversation
-			response = await chatgpt.sendMessage(prompt);
+			response = await chatgpt.ask(prompt, conv.id);
 		}
 
 		const end = Date.now() - start;
 
-		cli.print(`[GPT] Answer to ${message.from}: ${response.text}  | OpenAI request took ${end}ms)`);
-
-		// Set the conversation
-		conversations[message.from] = {
-			conversationId: response.conversationId,
-			parentMessageId: response.id
-		};
+		cli.print(`[GPT] Answer to ${message.from}: ${response}  | OpenAI request took ${end}ms)`);
 
 		// TTS reply (Default: disabled)
 		if (config.ttsEnabled) {
@@ -47,17 +57,25 @@ const handleMessageGPT = async (message: Message, prompt: string) => {
 		}
 
 		// Default: Text reply
-		message.reply(response.text);
+		message.reply(response);
 	} catch (error: any) {
 		console.error("An error occured", error);
 		message.reply("An error occured, please contact the administrator. (" + error.message + ")");
 	}
 };
 
-async function sendVoiceMessageReply(message: Message, gptResponse: any) {
+const handleDeleteConversation = async (message: Message) => {
+	// Delete conversation
+	delete conversations[message.from];
+
+	// Reply
+	message.reply("Conversation context was resetted!");
+}
+
+async function sendVoiceMessageReply(message: Message, gptTextResponse: string) {
 	// Get audio buffer
-	cli.print(`[Speech API] Generating audio from GPT response "${gptResponse.text}"...`);
-	const audioBuffer = await ttsRequest(gptResponse.text);
+	cli.print(`[Speech API] Generating audio from GPT response "${gptTextResponse}"...`);
+	const audioBuffer = await ttsRequest(gptTextResponse);
 	cli.print("[Speech API] Audio generated!");
 
 	// Check if audio buffer is valid
@@ -68,7 +86,7 @@ async function sendVoiceMessageReply(message: Message, gptResponse: any) {
 
 	// Get temp folder and file path
 	const tempFolder = os.tmpdir();
-	const tempFilePath = tempFolder + randomUUID() + ".opus";
+	const tempFilePath = path.join(tempFolder, randomUUID() + ".opus");
 
 	// Save buffer to temp file
 	fs.writeFileSync(tempFilePath, audioBuffer);
@@ -81,4 +99,4 @@ async function sendVoiceMessageReply(message: Message, gptResponse: any) {
 	fs.unlinkSync(tempFilePath);
 }
 
-export { handleMessageGPT };
+export { handleMessageGPT, handleDeleteConversation };

@@ -11,8 +11,12 @@
 	"license": "MIT",
 	"dependencies": {
 		"@clack/prompts": "^0.4.3",
+<<<<<<< HEAD
 		"chatgpt": "^4.7.0",
 		"conda": "^0.0.1-a17",
+=======
+		"chatgpt-official": "^1.1.5",
+>>>>>>> 87bde87de984415f3ce26dcefc943935361cae10
 		"dotenv": "^16.0.3",
 		"openai": "^3.1.0",
 		"picocolors": "^1.0.0",

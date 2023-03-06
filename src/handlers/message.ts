@@ -8,7 +8,7 @@ import config from "../config";
 import * as cli from "../cli/ui";
 
 // ChatGPT & DALLE
-import { handleMessageGPT } from "../handlers/gpt";
+import { handleMessageGPT, handleDeleteConversation } from "../handlers/gpt";
 import { handleMessageDALLE } from "../handlers/dalle";
 import { handleMessageAIConfig } from "../handlers/ai-config";
 
@@ -17,9 +17,29 @@ import { TranscriptionMode } from "../types/transcription-mode";
 import { transcribeRequest } from "../providers/speech";
 import { transcribeAudioLocal } from "../providers/whisper-local";
 
+// For deciding to ignore old messages
+import { botReadyTimestamp } from "../index";
+
 // Handles message
 async function handleIncomingMessage(message: Message) {
 	let messageString = message.body;
+
+	// Prevent handling old messages
+	if (message.timestamp != null) {
+		const messageTimestamp = new Date(message.timestamp * 1000);
+		
+		// If startTimestamp is null, the bot is not ready yet
+		if (botReadyTimestamp == null) {
+			cli.print("Ignoring message because bot is not ready yet: " + messageString)
+			return;
+		}
+
+		// Ignore messages that are sent before the bot is started
+		if (messageTimestamp < botReadyTimestamp) {
+			cli.print("Ignoring old message: " + messageString);
+			return;
+		}
+	}
 
 	// Transcribe audio
 	if (message.hasMedia) {
@@ -75,8 +95,20 @@ async function handleIncomingMessage(message: Message) {
 		return;
 	}
 
+	// Clear conversation context (!clear)
+	if (startsWithIgnoreCase(messageString, config.resetPrefix)) {
+		await handleDeleteConversation(message);
+	}
+
+	// AiConfig (!config <args>)
+	if (startsWithIgnoreCase(messageString, config.aiConfigPrefix)) {
+		const prompt = messageString.substring(config.aiConfigPrefix.length + 1);
+		await handleMessageAIConfig(message, prompt);
+		return;
+	}
+
+	// GPT (only <prompt>)
 	if (!config.prefixEnabled) {
-		// GPT (only <prompt>)
 		await handleMessageGPT(message, messageString);
 		return;
 	}
@@ -95,12 +127,6 @@ async function handleIncomingMessage(message: Message) {
 		return;
 	}
 
-	// AiConfig (!config <args>)
-	if (startsWithIgnoreCase(messageString, config.aiConfigPrefix)) {
-		const prompt = messageString.substring(config.aiConfigPrefix.length + 1);
-		await handleMessageAIConfig(message, prompt);
-		return;
-	}
 }
 
 export { handleIncomingMessage };
