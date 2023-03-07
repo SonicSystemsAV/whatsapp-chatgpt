@@ -1,22 +1,22 @@
-import { ChatGPTAPI } from "chatgpt";
+import { ChatGPT } from "chatgpt-official";
 import { Configuration, OpenAIApi } from "openai";
-// Environment variables
-import dotenv from 'dotenv';
+import config from "../config";
 
-// Load environment variables
-dotenv.config();
+let options = {
+	temperature: 0.7, // OpenAI parameter
+	max_tokens: config.maxModelTokens, // OpenAI parameter [Max response size by tokens]
+	top_p: 0.9, // OpenAI parameter
+	frequency_penalty: 0, // OpenAI parameter
+	presence_penalty: 0, // OpenAI parameter
+	// instructions: ``,
+	model: "gpt-3.5-turbo", // OpenAI parameter  `gpt-3.5-turbo` is PAID
+};
 
-// Open AI API Key
-const OPENAI_API_KEY = process.env.OPENAI_API_KEY || "";
+export const chatgpt = new ChatGPT(config.openAIAPIKey, options); // Note: options is optional
 
-// ChatGPT Client
-export const chatgpt = new ChatGPTAPI({
-	apiKey: OPENAI_API_KEY
-});
-
-// OpenAI Client
+// OpenAI Client (DALL-E)
 export const openai = new OpenAIApi(
 	new Configuration({
-		apiKey: OPENAI_API_KEY
+		apiKey: config.openAIAPIKey
 	})
 );
